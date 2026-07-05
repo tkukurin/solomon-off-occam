@@ -1,0 +1,9 @@
+[submodule "refs/gdm_univ"]
+	path = refs/gdm_univ
+	url = https://github.com/google-deepmind/neural_networks_solomonoff_induction.git
+[submodule "refs/PFNs"]
+	path = refs/PFNs
+	url = https://github.com/SamuelGabriel/PFNs.git
+[submodule "refs/prior-v0"]
+	path = refs/prior-v0
+	url = https://github.com/automl/TransformersCanDoBayesianInference.git
