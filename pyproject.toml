@@ -1,0 +1,14 @@
+[project]
+name = "solomonoff"
+version = "0.1.0"
+description = "priors, kolmogorov complexity, all that jazz."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "torch>=2.2.0",
+    "numpy>=2.0.0",
+    "matplotlib>=3.8.0",
+]
+
+[tool.uv]
+workspace = { members = ["refs/PFNs"] }
