@@ -66,11 +66,6 @@ def argument(name: str, tag: str) -> dc.Delta:
     return dc.Delta(f"${name}", type=tag, isarg=True)
 
 
-def add_primitive() -> dc.Delta:
-    return dc.Delta(head=lambda left, right: left + right, type=TOTAL_ENERGY,
-                    tailtypes=(ENERGY, ENERGY), repr_str="add")
-
-
 def base_primitives() -> list[dc.Delta]:
     # deliberately fine-grained: squaring is an explicit self-product and
     # halving an explicit division by the constant 2, so raw solutions are
@@ -93,7 +88,8 @@ def base_primitives() -> list[dc.Delta]:
         # tasks never need, so each extra search level costs real branching
         dc.Delta(head=lambda value: -value, type=ENERGY,
                  tailtypes=(ENERGY,), repr_str="negate"),
-        add_primitive(),
+        dc.Delta(head=lambda left, right: left + right, type=TOTAL_ENERGY,
+                 tailtypes=(ENERGY, ENERGY), repr_str="add"),
     ]
 
 
@@ -163,25 +159,21 @@ def substitute(tree: dc.Delta, bindings: dict) -> dc.Delta:
     return replace(tree, tails=tuple(substitute(tail, bindings) for tail in tree.tails))
 
 
-def _evaluate_example(tree, values, expected, arguments, by_head) -> bool:
-    if by_head:
-        mapping = {arg.head: val for arg, val in zip(arguments, values)}
-        applied = substitute(tree, mapping)
-    else:
-        applied = tree
-        for arg, val in zip(arguments, values):
-            applied = dc.replace_hidden(applied, arg, dc.Delta(val, type=arg.type))
-    try:
-        return abs(cast(float, applied()) - expected) <= 1e-9
-    except (ZeroDivisionError, OverflowError):
-        return False
-
-
 def matches_examples(tree, examples, arguments, by_head=False) -> bool:
-    return all(
-        _evaluate_example(tree, vals, exp, arguments, by_head)
-        for vals, exp in examples
-    )
+    for values, expected in examples:
+        if by_head:
+            applied = substitute(tree, {a.head: v for a, v in zip(arguments, values)})
+        else:
+            applied = tree
+            for arg, val in zip(arguments, values):
+                applied = dc.replace_hidden(applied, arg, dc.Delta(val, type=arg.type))
+
+        try:
+            if abs(cast(float, applied()) - expected) > 1e-9: return False
+        except (ZeroDivisionError, OverflowError):
+            return False
+
+    return True
 
 
 def node_key(node: dc.Delta) -> str:
@@ -481,8 +473,13 @@ def run_library_bloat(inventions, mechanical: Task, log=lambda _: None):
     counts = (0, 2, 4, 8, 16)
     expansions = []
     for count in counts:
-        dsl = dc.Deltas([add_primitive(), *inventions, *make_distractors(count),
-                         *mechanical.arguments])
+        dsl = dc.Deltas([
+            dc.Delta(
+                head=lambda left, right: left + right, type=TOTAL_ENERGY,
+                tailtypes=(ENERGY, ENERGY), repr_str="add"
+            ),
+            *inventions, *make_distractors(count), *mechanical.arguments
+        ])
         tree, _, expanded = solve(mechanical.examples, dsl, mechanical.arguments,
                                   TOTAL_ENERGY)
         if tree is None: raise ValueError("Tree cannot be None")

@@ -152,13 +152,16 @@ class Deltas:
     def add(self, d: Delta):
         self.invented.append(d)
         self.infer()
+        self.infer()
 
     def remove(self, d: Delta):
         self.invented.pop(self.index(d) - len(self.core))
         self.infer()
+        self.infer()
 
     def reset(self):
         self.invented = []
+        self.infer()
         self.infer()
 
     def infer(self):
@@ -328,8 +331,9 @@ def _find_best_compression(counts: Counter, mx: int) -> Delta | None:
 
 def ECD(X: str, D: Deltas, timeout: int = 60, budget: int = 20):
     D.reset()
-    Q = F.log_softmax(torch.ones(len(D)), -1)
-
-    sols = solve_enumeration(X, D, Q, maxdepth=10, timeout=timeout, budget=budget)
+    sols = solve_enumeration(
+        X, D, F.log_softmax(torch.ones(len(D)), -1),
+        maxdepth=10, timeout=timeout, budget=budget
+    )
     saturate(D, sols)
     return sols
