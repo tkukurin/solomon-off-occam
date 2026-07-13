@@ -1,0 +1,284 @@
+{
+  "seed": 0,
+  "search_budget": 20000,
+  "max_depth": 2,
+  "prior_mode": "weighted",
+  "compression": {
+    "enabled": true,
+    "min_task_support": 2,
+    "min_fixed_nodes": 3,
+    "max_arity": 1,
+    "prior_alpha": 1
+  },
+  "train_tasks": [
+    {
+      "name": "east then south",
+      "cases": [
+        {
+          "size": 5,
+          "start": [
+            0,
+            0
+          ],
+          "goal": [
+            4,
+            4
+          ],
+          "max_steps": 12
+        },
+        {
+          "size": 7,
+          "start": [
+            1,
+            1
+          ],
+          "goal": [
+            5,
+            6
+          ],
+          "max_steps": 16
+        }
+      ]
+    },
+    {
+      "name": "east then north",
+      "cases": [
+        {
+          "size": 5,
+          "start": [
+            0,
+            4
+          ],
+          "goal": [
+            4,
+            0
+          ],
+          "max_steps": 12
+        },
+        {
+          "size": 7,
+          "start": [
+            1,
+            5
+          ],
+          "goal": [
+            6,
+            1
+          ],
+          "max_steps": 16
+        }
+      ]
+    }
+  ],
+  "dynamic_tasks": [
+    {
+      "name": "2D surprise gate closure",
+      "size": [
+        9,
+        7
+      ],
+      "start": [
+        1,
+        3
+      ],
+      "goal": [
+        7,
+        3
+      ],
+      "walls": [
+        [
+          4,
+          2
+        ],
+        [
+          4,
+          3
+        ],
+        [
+          4,
+          4
+        ]
+      ],
+      "dynamic_gate": [
+        4,
+        1
+      ],
+      "gate_closes_at": 3,
+      "period": 1,
+      "active_duration": 0,
+      "phase": 0,
+      "max_steps": 30
+    },
+    {
+      "name": "static bridge",
+      "size": [
+        7,
+        3
+      ],
+      "corridor_row": 1,
+      "start": [
+        0,
+        1
+      ],
+      "goal": [
+        6,
+        1
+      ],
+      "hazard": [
+        3,
+        1
+      ],
+      "period": 1,
+      "active_duration": 0,
+      "phase": 0,
+      "max_steps": 10
+    },
+    {
+      "name": "long closure bridge",
+      "size": [
+        7,
+        3
+      ],
+      "corridor_row": 1,
+      "start": [
+        0,
+        1
+      ],
+      "goal": [
+        6,
+        1
+      ],
+      "hazard": [
+        3,
+        1
+      ],
+      "period": 4,
+      "active_duration": 2,
+      "phase": 1,
+      "max_steps": 12
+    },
+    {
+      "name": "fast blinking bridge",
+      "size": [
+        7,
+        3
+      ],
+      "corridor_row": 1,
+      "start": [
+        0,
+        1
+      ],
+      "goal": [
+        6,
+        1
+      ],
+      "hazard": [
+        3,
+        1
+      ],
+      "period": 2,
+      "active_duration": 1,
+      "phase": 1,
+      "max_steps": 12
+    }
+  ],
+  "heldout_tasks": [
+    {
+      "name": "new compound fallback",
+      "cases": [
+        {
+          "size": 9,
+          "start": [
+            0,
+            1
+          ],
+          "goal": [
+            8,
+            7
+          ],
+          "max_steps": 20
+        },
+        {
+          "size": 9,
+          "start": [
+            4,
+            0
+          ],
+          "goal": [
+            4,
+            8
+          ],
+          "max_steps": 12
+        },
+        {
+          "size": 9,
+          "start": [
+            4,
+            8
+          ],
+          "goal": [
+            4,
+            0
+          ],
+          "max_steps": 12
+        }
+      ]
+    }
+  ],
+  "library": [
+    {
+      "name": "north",
+      "kind": "action",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "name": "east",
+      "kind": "action",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "name": "south",
+      "kind": "action",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "name": "west",
+      "kind": "action",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "name": "goal_east",
+      "kind": "predicate",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "name": "goal_west",
+      "kind": "predicate",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "name": "goal_south",
+      "kind": "predicate",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "name": "goal_north",
+      "kind": "predicate",
+      "weight": 1,
+      "enabled": true
+    },
+    {
+      "name": "if",
+      "kind": "branch",
+      "weight": 1,
+      "enabled": true
+    }
+  ]
+}

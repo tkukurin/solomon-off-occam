@@ -25,6 +25,8 @@ gemini expands wtih:
 
 `dumbcoder.py` + `dumbcoder_physics.py`: tiny dreamcoder-ish program synthesis experiments—search, compress recurring programs into new primitives, repeat.
 
+`uv run --extra minihack dumbcoder_minihack.py`: dynamic local MiniHack workbench with parameterized skill discovery, held-out ablations, controlled blinking hazards, time-expanded A*, actual MiniHack tile renderings, editable settings, and replay controls.
+
 solomonoff-wise, learning the DSL means learning the coding scheme behind the prior: reusable structure gets shorter descriptions and more probability.
 
 * [dreamcoder]: _wake-sleep Bayesian program learning; grows a DSL of reusable abstractions alongside a neural search policy_

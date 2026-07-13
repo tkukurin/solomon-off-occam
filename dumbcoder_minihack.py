@@ -5,8 +5,7 @@ The website edits the starting DSL, priors, compression settings, and task cases
 then reruns real MiniHack training and held-out evaluation directly.
 """
 
-from __future__ import annotations
-
+import base64
 import heapq
 import json
 import threading
@@ -14,16 +13,14 @@ import webbrowser
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from enum import Enum
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from math import log
 from pathlib import Path
 from typing import Any, Callable, cast
 
 import minihack  # noqa: F401 -- import registers environments and loads NLE
 import numpy as np
-from minihack import LevelGenerator, MiniHackNavigation
-from nle import nethack
+from PIL import Image
 from simple_parsing import parse
 
 import dumbcoder as dc
@@ -34,12 +31,11 @@ DEFAULT_CONFIG_PATH = Path("minihack_config.json")
 RESULT_PATH = Path("experiments/2607/13-minihack-program-learning-results.json")
 FRAME_PATH = Path("experiments/2607/13-minihack-program-learning-trajectory.txt")
 HTML_PATH = Path("experiments/2607/13-minihack-program-learning-demo.html")
-HTML_TEMPLATE_PATH = Path(__file__).with_name("minihack_demo_template.html")
-
-ACTION_NAMES = ("north", "east", "south", "west")
-ACTION_DELTAS = ((0, -1), (1, 0), (0, 1), (-1, 0))
-MINIHACK_ACTIONS = tuple(
-    getattr(nethack.CompassDirection, name) for name in ("N", "E", "S", "W")
+ACTION_NAMES = ("north", "east", "south", "west", "wait")
+ACTION_DELTAS = ((0, -1), (1, 0), (0, 1), (-1, 0), (0, 0))
+MINIHACK_ACTIONS = (
+    *(getattr(nethack.CompassDirection, name) for name in ("N", "E", "S", "W")),
+    nethack.MiscDirection.WAIT,
 )
 
 
@@ -55,8 +51,7 @@ class State:
 class Rollout:
     success: bool
     total_reward: float
-    steps: list[dict[str, Any]]
-    frames: list[str]
+    rgb_frames: list[str]
     terminal_frame_inferred: bool = False
 
 
@@ -251,19 +246,44 @@ def state_from_observation(observation: dict[str, np.ndarray]) -> State:
         raise ValueError(f"expected one visible staircase, found {len(goal_x)}")
     player_x, player_y = observation["blstats"][:2]
     return State(int(player_x), int(player_y), int(goal_x[0]), int(goal_y[0]))
-
-
-def ascii_frame(observation: dict[str, np.ndarray]) -> str | None:
+def room_bounds(
+    observation: dict[str, np.ndarray],
+) -> tuple[int, int, int, int] | None:
     chars = observation["chars"]
-    visible = np.isin(chars, np.fromiter(map(ord, ".@><"), dtype=np.uint8))
+    visible = np.isin(chars, np.fromiter(map(ord, ".@><|-"), dtype=np.uint8))
     rows, columns = np.where(visible)
     if not len(rows):
         return None
-    crop = chars[rows.min():rows.max() + 1, columns.min():columns.max() + 1]
+    return int(rows.min()), int(rows.max()), int(columns.min()), int(columns.max())
+
+
+def ascii_frame(observation: dict[str, np.ndarray]) -> str | None:
+    bounds = room_bounds(observation)
+    if bounds is None:
+        return None
+    top, bottom, left, right = bounds
+    crop = observation["chars"][top:bottom + 1, left:right + 1]
     return "\n".join(
         "".join(chr(int(value)) if 32 <= value < 127 else " " for value in row)
         for row in crop
     )
+
+
+def rgb_frame(observation: dict[str, np.ndarray]) -> str | None:
+    bounds = room_bounds(observation)
+    if bounds is None or "pixel" not in observation:
+        return None
+    top, bottom, left, right = bounds
+    pixel = observation["pixel"]
+    tile_height = pixel.shape[0] // observation["chars"].shape[0]
+    tile_width = pixel.shape[1] // observation["chars"].shape[1]
+    crop = pixel[
+        top * tile_height:(bottom + 1) * tile_height,
+        left * tile_width:(right + 1) * tile_width,
+    ]
+    buffer = BytesIO()
+    Image.fromarray(crop).save(buffer, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
 def advance_ascii_frame(frame: str, action: int) -> str:
@@ -279,18 +299,30 @@ def advance_ascii_frame(frame: str, action: int) -> str:
     rows[player_y + dy][player_x + dx] = "@"
     return "\n".join("".join(row) for row in rows)
 
-
-def make_environment(case: dict[str, Any]) -> MiniHackNavigation:
-    size = int(case["size"])
+    size = case["size"]
+    width, height = (
+        (int(size), int(size))
+        if isinstance(size, int)
+        else (int(size[0]), int(size[1]))
+    )
     start = tuple(map(int, case["start"]))
     goal = tuple(map(int, case["goal"]))
-    level = LevelGenerator(w=size, h=size, lit=True)
+    level = LevelGenerator(w=width, h=height, lit=True)
+    if "corridor_row" in case:
+        corridor_row = int(case["corridor_row"])
+        for y in range(height):
+            if y == corridor_row:
+                continue
+            for x in range(width):
+                level.add_terrain((x, y), " ")
+    for wall in case.get("walls", []):
+        level.add_terrain(tuple(map(int, wall)), "|")
     level.set_start_pos(start)
     level.add_goal_pos(goal)
     return MiniHackNavigation(
         des_file=level.get_des(),
         actions=MINIHACK_ACTIONS,
-        observation_keys=("blstats", "chars"),
+        observation_keys=("blstats", "chars", "pixel"),
         max_episode_steps=int(case["max_steps"]),
     )
 
@@ -306,15 +338,13 @@ def run_policy(
     trace: list[dict[str, Any]] = []
     initial_frame = ascii_frame(observation)
     if initial_frame is None:
-        raise ValueError("initial observation did not contain a visible room")
-    frames = [initial_frame]
+    initial_rgb = rgb_frame(observation)
+    rgb_frames = [initial_rgb] if initial_rgb is not None else []
     terminal_frame_inferred = False
 
     for step_index in range(max_steps):
         state = state_from_observation(observation)
-        action = int(policy(state))
-        if not 0 <= action < len(ACTION_NAMES):
-            return Rollout(False, total_reward, trace, frames)
+            return Rollout(False, total_reward, trace, frames, rgb_frames)
         observation, reward, terminated, truncated, _ = environment.step(action)
         total_reward += float(reward)
         next_frame = ascii_frame(observation)
@@ -323,8 +353,9 @@ def run_policy(
                 next_frame = advance_ascii_frame(frames[-1], action)
                 terminal_frame_inferred = True
             else:
-                next_frame = "<observation contains no visible room>"
-        frames.append(next_frame)
+        next_rgb = rgb_frame(observation)
+        if rgb_frames:
+            rgb_frames.append(next_rgb if next_rgb is not None else rgb_frames[-1])
         trace.append({
             "step": step_index,
             "player": [state.player_x, state.player_y],
@@ -338,11 +369,12 @@ def run_policy(
             return Rollout(
                 bool(terminated and reward > 0),
                 total_reward,
-                trace,
-                frames,
+                rgb_frames,
                 terminal_frame_inferred,
             )
-    return Rollout(False, total_reward, trace, frames, terminal_frame_inferred)
+    return Rollout(
+        False, total_reward, trace, frames, rgb_frames, terminal_frame_inferred
+    )
 
 
 def find_hole(tree: dc.Delta) -> list[int] | None:
@@ -720,8 +752,7 @@ def rollout_payload(rollout: Rollout, case: dict[str, Any], index: int) -> dict[
         "success": rollout.success,
         "return": rollout.total_reward,
         "episode_steps": len(rollout.steps),
-        "trajectory": rollout.steps,
-        "frames": rollout.frames,
+        "rgb_frames": rollout.rgb_frames,
         "terminal_frame_inferred": rollout.terminal_frame_inferred,
     }
 
@@ -760,8 +791,263 @@ def solve_task(
     environments = make_task_environments(task)
     try:
         return synthesize(environments, task, library, config, prior_mode)
+
+
+def dynamic_obstacle_position(case: dict[str, Any]) -> tuple[int, int]:
+    values = case.get("dynamic_gate", case.get("hazard"))
+    if values is None:
+        raise ValueError(f"dynamic task {case['name']} has no obstacle position")
+    return int(values[0]), int(values[1])
+
+
+def obstacle_active(case: dict[str, Any], time_step: int) -> bool:
+    if "dynamic_gate" in case:
+        return time_step >= int(case["gate_closes_at"])
+    active_duration = int(case["active_duration"])
+    if active_duration <= 0:
+        return False
+    period = int(case["period"])
+    phase = int(case.get("phase", 0))
+    return (time_step + phase) % period < active_duration
+
+
+def obstacle_active_in_plan(
+    case: dict[str, Any], arrival_time: int, planning_time: int
+) -> bool:
+    if "dynamic_gate" in case:
+        return planning_time >= int(case["gate_closes_at"])
+    return obstacle_active(case, arrival_time)
+
+
+def walkable(case: dict[str, Any], position: tuple[int, int]) -> bool:
+    width, height = map(int, case["size"])
+    x, y = position
+    if not (0 <= x < width and 0 <= y < height):
+        return False
+    if [x, y] in case.get("walls", []):
+        return False
+    return "corridor_row" not in case or y == int(case["corridor_row"])
+
+
+def time_expanded_plan(
+    case: dict[str, Any],
+    start: tuple[int, int],
+    start_time: int,
+) -> tuple[list[int], int]:
+    goal = tuple(map(int, case["goal"]))
+    period = max(1, int(case["period"]))
+    start_state = (start[0], start[1], start_time % period)
+    frontier = [(0, 0, 0, start_state)]
+    best_cost = {start_state: 0}
+    parent: dict[tuple[int, int, int], tuple[tuple[int, int, int], int]] = {}
+    sequence = 0
+    expanded = 0
+
+    while frontier:
+        _, cost, _, state = heapq.heappop(frontier)
+        x, y, phase = state
+        if (x, y) == goal:
+            actions = []
+            while state != start_state:
+                previous, action = parent[state]
+                actions.append(action)
+                state = previous
+            actions.reverse()
+            return actions, expanded
+        if cost != best_cost.get(state):
+            continue
+        expanded += 1
+        absolute_next_time = start_time + cost + 1
+        next_phase = (phase + 1) % period
+        for action, (dx, dy) in enumerate(ACTION_DELTAS):
+            candidate = (x + dx, y + dy)
+            if not walkable(case, candidate):
+                continue
+            if (
+                candidate == dynamic_obstacle_position(case)
+                and obstacle_active_in_plan(case, absolute_next_time, start_time)
+            ):
+                continue
+            next_state = (candidate[0], candidate[1], next_phase)
+            next_cost = cost + 1
+            if next_cost >= best_cost.get(next_state, 1_000_000):
+                continue
+            best_cost[next_state] = next_cost
+            parent[next_state] = (state, action)
+            sequence += 1
+            heuristic = abs(candidate[0] - goal[0]) + abs(candidate[1] - goal[1])
+            heapq.heappush(
+                frontier,
+                (next_cost + heuristic, next_cost, sequence, next_state),
+            )
+    raise RuntimeError(f"no time-expanded path for dynamic task {case['name']}")
+
+
+def run_dynamic_strategy(
+    case: dict[str, Any], strategy: str, seed: int
+) -> dict[str, Any]:
+    environment = make_environment(case)
+    try:
+        observation, _ = environment.reset(seed=seed)
+        frame = ascii_frame(observation)
+        rendered = rgb_frame(observation)
+        if frame is None or rendered is None:
+            raise ValueError("dynamic room did not produce renderable observations")
+        frames = [frame]
+        rgb_frames = [rendered]
+        hazard_states = [obstacle_active(case, 0)]
+        trace = []
+        start_values = list(map(int, case["start"]))
+        goal_values = list(map(int, case["goal"]))
+        position = (start_values[0], start_values[1])
+        goal = (goal_values[0], goal_values[1])
+        planning_expansions = 0
+        replans = 0
+        plan: list[int] = []
+        success = False
+        collision = False
+        plan_invalidated = False
+        failure_reason = None
+        initial_plan: list[str] = []
+
+        if strategy == "one_shot_astar":
+            plan, expanded = time_expanded_plan(case, position, 0)
+            planning_expansions += expanded
+            replans = 1
+            initial_plan = [ACTION_NAMES[action] for action in plan]
+
+        for step_index in range(int(case["max_steps"])):
+            if strategy == "static_program":
+                action = 1 if position[0] < goal[0] else 4
+            elif strategy == "one_shot_astar":
+                action = plan.pop(0) if plan else 4
+            elif strategy == "replanning_astar":
+                plan, expanded = time_expanded_plan(case, position, step_index)
+                planning_expansions += expanded
+                replans += 1
+                action = plan[0] if plan else 4
+            else:
+                raise ValueError(f"unknown dynamic strategy: {strategy}")
+
+            dx, dy = ACTION_DELTAS[action]
+            proposed = (position[0] + dx, position[1] + dy)
+            next_time = step_index + 1
+            active = obstacle_active(case, next_time)
+            if proposed == dynamic_obstacle_position(case) and active:
+                collision = "hazard" in case
+                plan_invalidated = "dynamic_gate" in case
+                failure_reason = (
+                    "plan invalidated by unexpected gate closure"
+                    if plan_invalidated
+                    else "entered active blinking hazard"
+                )
+                frames.append(frames[-1])
+                rgb_frames.append(rgb_frames[-1])
+                hazard_states.append(active)
+                trace.append({
+                    "step": step_index,
+                    "player": list(position),
+                    "goal": list(goal),
+                    "action": ACTION_NAMES[action],
+                    "reward": -1.0,
+                    "collision": collision,
+                    "plan_invalidated": plan_invalidated,
+                    "failure_reason": failure_reason,
+                    "hazard_active": active,
+                    "replanned": strategy == "replanning_astar",
+                })
+                break
+
+            observation, reward, terminated, truncated, _ = environment.step(action)
+            if walkable(case, proposed):
+                position = proposed
+            next_frame = ascii_frame(observation)
+            next_render = rgb_frame(observation)
+            frames.append(next_frame if next_frame is not None else frames[-1])
+            rgb_frames.append(next_render if next_render is not None else rgb_frames[-1])
+            hazard_states.append(active)
+            trace.append({
+                "step": step_index,
+                "player": list(position),
+                "goal": list(goal),
+                "action": ACTION_NAMES[action],
+                "reward": float(reward),
+                "collision": False,
+                "plan_invalidated": False,
+                "failure_reason": None,
+                "hazard_active": active,
+                "replanned": strategy == "replanning_astar",
+            })
+            if terminated or truncated:
+                success = bool(terminated and reward > 0)
+                break
+
+        if not success and failure_reason is None:
+            failure_reason = "episode limit reached without a valid plan"
+
+        return {
+            "name": strategy,
+            "program": {
+                "static_program": "move east toward known goal",
+                "one_shot_astar": "A* over (x, y, time mod period), planned once",
+                "replanning_astar": "A* over (x, y, time mod period), replanned each step",
+            }[strategy],
+            "success": success,
+            "collision": collision,
+            "plan_invalidated": plan_invalidated,
+            "failure_reason": failure_reason,
+            "initial_plan": initial_plan,
+            "episode_steps": len(trace),
+            "programs_tested": 0,
+            "nodes_expanded": planning_expansions,
+            "program_nodes": None,
+            "planning_expansions": planning_expansions,
+            "replans": replans,
+            "trajectories": [{
+                "case_index": 0,
+                "case": case,
+                "success": success,
+                "return": 1.0 if success else -1.0 if collision else 0.0,
+                "episode_steps": len(trace),
+                "trajectory": trace,
+                "frames": frames,
+                "rgb_frames": rgb_frames,
+                "hazard_states": hazard_states,
+                "terminal_frame_inferred": False,
+            }],
+        }
     finally:
-        close_environments(environments)
+        environment.close()
+
+
+def run_dynamic_evaluation(config: dict[str, Any]) -> list[dict[str, Any]]:
+    output = []
+    for index, case in enumerate(config.get("dynamic_tasks", [])):
+        strategies = [
+            run_dynamic_strategy(case, strategy, int(config["seed"]))
+            for strategy in (
+                "static_program",
+                "one_shot_astar",
+                "replanning_astar",
+            )
+        ]
+        output.append({
+            "id": f"dynamic-{index + 1}",
+            "index": index,
+            "split": "dynamic",
+            "name": str(case["name"]),
+            "case": case,
+            "strategies": strategies,
+            "failure_mode": {
+                "static_failed": not strategies[0]["success"],
+                "one_shot_succeeded": strategies[1]["success"],
+                "replanning_succeeded": strategies[2]["success"],
+                "replanning_fixed_stale_plan": (
+                    not strategies[1]["success"] and strategies[2]["success"]
+                ),
+            },
+        })
+    return output
 
 
 def candidate_payload(candidate: SkillCandidate, invention: LibraryPrimitive) -> dict[str, Any]:
@@ -892,13 +1178,13 @@ def run_experiment(config: dict[str, Any]) -> dict[str, Any]:
                     else None
                 ),
             },
-        })
-
+    dynamic = run_dynamic_evaluation(config)
     return {
         "config": config,
         "initial_library": initial,
         "training": training,
         "heldout": heldout,
+        "dynamic": dynamic,
         "summary": {
             "training_tasks": len(training),
             "heldout_tasks": len(heldout),
@@ -906,8 +1192,10 @@ def run_experiment(config: dict[str, Any]) -> dict[str, Any]:
             "final_library_size": len(library),
             "generalization_passed": all(
                 task["generalization"]["all_cases_success"]
-                and task["generalization"]["uses_parameterized_skill"]
-                for task in heldout
+            ),
+            "dynamic_failure_displayed": any(
+                task["failure_mode"]["replanning_fixed_stale_plan"]
+                for task in dynamic
             ),
         },
     }
@@ -921,8 +1209,11 @@ def format_frames(payload: dict[str, Any]) -> str:
             sections.append(format_trajectory(step["name"], result["program"], trajectory))
     for task in payload["heldout"]:
         learned = next(c for c in task["conditions"] if c["name"] == "learned_fitted")
-        for trajectory in learned["trajectories"]:
-            sections.append(format_trajectory(task["name"], learned["program"], trajectory))
+    for task in payload["dynamic"]:
+        for strategy in task["strategies"]:
+            sections.append(
+                format_trajectory(task["name"], strategy["program"], strategy["trajectories"][0])
+            )
     return ("\n\n" + "=" * 72 + "\n\n").join(sections) + "\n"
 
 
@@ -979,8 +1270,14 @@ def print_summary(payload: dict[str, Any], config_path: Path) -> None:
             f"held-out:    {task['name']}: learned={generalization['learned_program']}, "
             f"expanded learned/frozen={generalization['learned_expansions']}/"
             f"{generalization['frozen_expansions']}"
+    for task in payload["dynamic"]:
+        results = {strategy["name"]: strategy for strategy in task["strategies"]}
+        print(
+            f"dynamic:     {task['name']}: static="
+            f"{results['static_program']['success']}, one-shot="
+            f"{results['one_shot_astar']['success']}, replanning="
+            f"{results['replanning_astar']['success']}"
         )
-    print(f"generalizes: {payload['summary']['generalization_passed']}")
 
 
 def run_once(config_path: Path, render: bool = False) -> dict[str, Any]:

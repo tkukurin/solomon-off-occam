@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiniHack program learning</title>
+  <style>
+    :root { color-scheme: light; --line: #bbb; --muted: #666; --blue: #0057b8; --green: #087a35; --left: 210px; --right: 380px; --cell: 34px; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #fff; color: #111; font: 13px/1.4 system-ui, sans-serif; }
+    button, select, input, textarea { border: 1px solid #777; background: #fff; color: #111; border-radius: 0; font: inherit; }
+    button, select, input { min-height: 30px; padding: 4px 7px; }
+    button { cursor: pointer; text-align: left; }
+    button:hover, button.active { background: #eee; }
+    button.primary { background: #111; color: #fff; border-color: #111; }
+    button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [role="separator"]:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+    code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    h1 { margin: 0; font-size: 22px; }
+    h2 { margin: 0 0 8px; font-size: 14px; }
+    h3 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+    header.top { min-height: 62px; border-bottom: 2px solid #111; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .top-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .workspace { height: calc(100vh - 182px); min-height: 560px; display: grid; grid-template-columns: var(--left) 6px minmax(360px, 1fr) 6px var(--right); border-bottom: 1px solid var(--line); }
+    .pane { min-width: 0; overflow: auto; padding: 12px; }
+    .splitter { background: #eee; border-left: 1px solid var(--line); border-right: 1px solid var(--line); cursor: col-resize; }
+    nav { border-right: 0; }
+    .task-group { margin-bottom: 16px; }
+    .task-list { display: grid; gap: 4px; }
+    .task-list button { width: 100%; }
+    .task-list .active { border-left: 4px solid #111; }
+    .phase-strip { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 10px; }
+    .phase-strip button { text-align: center; border-right: 0; }
+    .phase-strip button:last-child { border-right: 1px solid #777; }
+    .phase-strip button.complete::before { content: "✓ "; color: var(--green); }
+    .phase-strip button.skipped::before { content: "— "; color: var(--muted); }
+    .metrics { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); border-left: 1px solid var(--line); margin-bottom: 10px; }
+    .metric { padding: 6px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .metric span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+    .metric strong { font-size: 15px; }
+    .program { border: 1px solid #111; padding: 8px; margin-bottom: 10px; overflow-wrap: anywhere; }
+    .game-toolbar, .playback, .inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .game-toolbar { justify-content: space-between; margin-bottom: 6px; }
+    .game-wrap { width: 100%; height: 390px; min-height: 220px; max-height: 75vh; resize: vertical; overflow: auto; border: 1px solid var(--line); display: grid; place-items: center; margin-bottom: 7px; }
+    .render-stage { position: relative; display: inline-block; line-height: 0; }
+    .pixel-frame { display: block; image-rendering: pixelated; }
+    .hazard-overlay { position: absolute; display: grid; place-items: center; border: 2px solid #b00020; background: #ff003344; color: #b00020; font: 700 14px/1 ui-monospace, monospace; line-height: 1; pointer-events: none; }
+    .hazard-overlay.inactive { border-color: #777; background: #ffffff88; color: #777; }
+    .game { display: grid; gap: 1px; border: 1px solid #111; background: #111; }
+    .cell { width: var(--cell); height: var(--cell); display: grid; place-items: center; background: #fff; font: 700 15px/1 ui-monospace, monospace; }
+    .cell.origin { background: #eee; }
+    .cell.goal { background: #fff0a8; }
+    .cell.agent { background: #d8edff; color: var(--blue); }
+    .cell.agent.goal { background: #d9f4df; color: var(--green); }
+    .playback input[type="range"] { flex: 1; min-width: 120px; accent-color: #111; }
+    .frame-meta { display: flex; justify-content: space-between; color: var(--muted); margin: 5px 0 10px; }
+    .transition { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+    .transition div { padding: 6px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .transition span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+    .phase-details { white-space: pre-wrap; border: 1px solid var(--line); padding: 8px; min-height: 100px; max-height: 220px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid var(--line); padding: 4px 5px; text-align: left; vertical-align: top; }
+    th { background: #f3f3f3; }
+    tr.learned td { background: #edf8ef; }
+    .library-table { max-height: 300px; overflow: auto; }
+    details { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; }
+    summary { cursor: pointer; font-weight: 650; }
+    textarea { width: 100%; min-height: 170px; padding: 6px; resize: vertical; font: 11px/1.35 ui-monospace, monospace; }
+    .config-grid { display: grid; grid-template-columns: max-content 1fr; gap: 5px 8px; align-items: center; margin: 8px 0; }
+    .config-grid input, .config-grid select { width: 100%; }
+    .base-library input[type="number"] { width: 64px; }
+    .note { border-left: 3px solid #111; padding-left: 8px; color: var(--muted); margin: 8px 0; }
+    .comparison { height: 120px; overflow: auto; padding: 8px 14px; }
+    .comparison strong.pass { color: var(--green); }
+    .condition-select { display: none; }
+    .condition-select.visible { display: inline-flex; }
+    @media (max-width: 900px) {
+      .workspace { height: auto; display: block; }
+      .splitter { display: none; }
+      .pane { border-bottom: 1px solid var(--line); }
+      .game-wrap { resize: vertical; }
+      .comparison { height: auto; }
+    }
+  </style>
+</head>
+<body>
+<header class="top">
+  <div><h1>MiniHack program learning</h1><p class="muted">Explore → anti-unify programs → add parameterized skill → refit typed prior → evaluate held-out composition</p></div>
+  <div class="top-controls">
+    <label>Cell <input id="cell-size" type="range" min="18" max="54" value="34"></label><output id="cell-size-value">34px</output>
+    <button class="primary" id="run-experiment">Run experiment</button><span id="run-status" class="muted"></span>
+  </div>
+</header>
+
+<div class="workspace" id="workspace">
+  <nav class="pane">
+    <div class="task-group"><h2>Training</h2><div class="task-list" id="training-list"></div></div>
+    <div class="task-group"><h2>Held-out synthesis</h2><div class="task-list" id="heldout-list"></div></div>
+    <div class="task-group"><h2>Controlled dynamics</h2><div class="task-list" id="dynamic-list"></div></div>
+    <button id="reset-layout">Reset layout</button>
+  </nav>
+  <div class="splitter" id="left-splitter" role="separator" tabindex="0" aria-label="Resize task pane"></div>
+
+  <main class="pane">
+    <div class="game-toolbar">
+      <div><strong id="selection-title">—</strong> <span id="environment-label" class="muted"></span></div>
+      <div class="inline condition-select" id="condition-controls"><label>Condition</label><select id="condition-select"></select></div>
+      <div class="inline"><label>Case</label><select id="case-select"></select></div>
+      <div class="inline"><label>Render</label><select id="render-mode"><option value="tiles">MiniHack tiles</option><option value="ascii">ASCII</option></select></div>
+    </div>
+
+    <div class="phase-strip" id="phase-strip">
+      <button data-phase="explore">Explore</button>
+      <button data-phase="compress">Compress</button>
+      <button data-phase="update_prior">Update prior</button>
+    </div>
+
+    <div class="metrics">
+      <div class="metric"><span>episode steps</span><strong id="episode-steps">—</strong></div>
+      <div class="metric"><span>programs tested</span><strong id="programs-tested">—</strong></div>
+      <div class="metric"><span>nodes expanded</span><strong id="nodes-expanded">—</strong></div>
+      <div class="metric"><span>program nodes</span><strong id="program-nodes">—</strong></div>
+      <div class="metric"><span>cases</span><strong id="case-count">—</strong></div>
+    </div>
+    <div class="program mono" id="program">—</div>
+    <pre class="phase-details" id="phase-details"></pre>
+
+    <h3>Trajectory</h3>
+    <div class="game-wrap" id="game-wrap">
+      <div class="render-stage" id="render-stage"><img class="pixel-frame" id="pixel-frame" alt="MiniHack rendered frame"><div class="hazard-overlay" id="hazard-overlay" hidden>!</div></div>
+      <div class="game" id="game" hidden></div>
+    </div>
+    <div class="playback">
+      <button id="first">|←</button><button id="previous">←</button><button class="primary" id="play">Play</button><button id="next">→</button>
+      <input id="scrubber" type="range" min="0" value="0" aria-label="Frame">
+      <select id="speed"><option value="1000">0.5×</option><option value="500" selected>1×</option><option value="220">2×</option></select>
+    </div>
+    <div class="frame-meta"><span id="frame-label">start</span><span id="frame-count">frame 0</span></div>
+    <div class="transition">
+      <div><span>action</span><strong id="action">start</strong></div><div><span>reward</span><strong id="reward">0</strong></div>
+      <div><span>player</span><strong id="player" class="mono">—</strong></div><div><span>goal</span><strong id="goal" class="mono">—</strong></div>
+    </div>
+  </main>
+
+  <div class="splitter" id="right-splitter" role="separator" tabindex="0" aria-label="Resize library pane"></div>
+  <aside class="pane">
+    <div class="game-toolbar"><h2>Library</h2><select id="library-phase"><option value="before">before</option><option value="after" selected>after</option></select></div>
+    <div class="library-table"><table><thead><tr><th>primitive</th><th>signature</th><th>weight</th><th>typed prior</th><th>definition</th></tr></thead><tbody id="library-body"></tbody></table></div>
+
+    <details open><summary>Experiment parameters</summary>
+      <p class="note">Edits are sent directly to the local Python process. A successful run updates this page and persists <code>minihack_config.json</code>.</p>
+      <div class="config-grid">
+        <label>Prior</label><select id="prior-mode"><option>uniform</option><option>weighted</option></select>
+        <label>Search budget</label><input id="search-budget" type="number" min="1">
+        <label>Max depth</label><input id="max-depth" type="number" min="1">
+        <label>Min support</label><input id="min-support" type="number" min="2">
+        <label>Min fixed nodes</label><input id="min-fixed" type="number" min="1">
+        <label>Prior α</label><input id="prior-alpha" type="number" min="0.01" step="0.1">
+      </div>
+      <h3>Starting DSL</h3>
+      <table class="base-library"><thead><tr><th>on</th><th>name</th><th>kind</th><th>weight</th></tr></thead><tbody id="config-library-body"></tbody></table>
+      <h3>Complete config</h3><textarea id="config-json" spellcheck="false"></textarea>
+      <div class="inline"><button id="apply-controls">Apply fields to JSON</button><button id="reset-config">Reset</button></div>
+    </details>
+  </aside>
+</div>
+
+<section class="comparison">
+  <h2>Held-out generalization</h2>
+  <div id="generalization-summary"></div>
+  <table><thead><tr><th>condition</th><th>program</th><th>success</th><th>tested</th><th>expanded</th><th>nodes</th></tr></thead><tbody id="comparison-body"></tbody></table>
+  <h2>Controlled dynamics</h2>
+  <table><thead><tr><th>environment</th><th>strategy</th><th>success</th><th>failure</th><th>steps</th><th>planning expansions</th><th>replans</th></tr></thead><tbody id="dynamic-comparison-body"></tbody></table>
+</section>
+
+<script id="trajectory-data" type="application/json">__MINIHACK_DATA__</script>
+<script>
+  let data = JSON.parse(document.getElementById("trajectory-data").textContent);
+  let originalConfig = structuredClone(data.config);
+  let editableConfig = structuredClone(data.config);
+  let selection = {split: "train", index: 0};
+  let phase = "explore";
+  let caseIndex = 0;
+  let frameIndex = 0;
+  let frames = [];
+  let trajectory = null;
+  let timer = null;
+  let origin = null;
+  let target = null;
+  const byId = id => document.getElementById(id);
+
+  function currentTask() {
+    if (selection.split === "train") return data.training[selection.index];
+    if (selection.split === "test") return data.heldout[selection.index];
+    return data.dynamic[selection.index];
+  }
+  function currentCondition() {
+    const task = currentTask();
+    if (selection.split === "train") return task.explore;
+    const options = selection.split === "test" ? task.conditions : task.strategies;
+    return options.find(item => item.name === byId("condition-select").value) ?? options[0];
+  }
+  function currentLibrary() {
+    const task = currentTask();
+    if (selection.split === "test") return currentCondition().library;
+    if (selection.split === "dynamic") return data.initial_library;
+    return byId("library-phase").value === "before" ? task.library_before : task.library_after;
+  }
+  function findCharacter(frame, wanted) {
+    for (let y = 0; y < frame.length; y += 1) { const x = frame[y].indexOf(wanted); if (x >= 0) return {x, y}; }
+    return null;
+  }
+
+  function rebuildTaskLists() {
+    const train = byId("training-list"); const test = byId("heldout-list"); const dynamic = byId("dynamic-list");
+    train.replaceChildren(); test.replaceChildren(); dynamic.replaceChildren();
+    data.training.forEach((task, index) => addTaskButton(train, task, "train", index));
+    data.heldout.forEach((task, index) => addTaskButton(test, task, "test", index));
+    data.dynamic.forEach((task, index) => addTaskButton(dynamic, task, "dynamic", index));
+  }
+  function addTaskButton(parent, task, split, index) {
+    const button = document.createElement("button");
+    button.textContent = `${index + 1}. ${task.name}`;
+    button.dataset.split = split; button.dataset.index = index;
+    button.addEventListener("click", () => { selection = {split, index}; phase = "explore"; caseIndex = 0; renderSelection(); });
+    parent.appendChild(button);
+  }
+
+  function renderSelection() {
+    pause();
+    document.querySelectorAll(".task-list button").forEach(button => button.classList.toggle("active", button.dataset.split === selection.split && Number(button.dataset.index) === selection.index));
+    const task = currentTask();
+    const splitLabel = selection.split === "train" ? "Train" : selection.split === "test" ? "Held-out" : "Dynamic";
+    byId("selection-title").textContent = `${splitLabel} ${selection.index + 1}: ${task.name}`;
+    const controls = byId("condition-controls");
+    if (selection.split !== "train") {
+      controls.classList.add("visible");
+      const select = byId("condition-select"); const previous = select.value; select.replaceChildren();
+      const options = selection.split === "test" ? task.conditions : task.strategies;
+      options.forEach(condition => { const option = document.createElement("option"); option.value = condition.name; option.textContent = condition.name; select.appendChild(option); });
+      const preferred = selection.split === "test" ? "learned_fitted" : "static_program";
+      select.value = options.some(c => c.name === previous) ? previous : preferred;
+      byId("phase-strip").style.display = "none";
+      byId("library-phase").style.display = "none";
+    } else {
+      controls.classList.remove("visible");
+      byId("phase-strip").style.display = "grid";
+      byId("library-phase").style.display = "inline-block";
+    }
+    renderRun(); renderPhase(); renderLibrary(); renderComparison();
+  }
+
+  function renderRun() {
+    const run = currentCondition();
+    byId("program").textContent = run.program;
+    byId("episode-steps").textContent = run.episode_steps;
+    byId("programs-tested").textContent = run.programs_tested;
+    byId("nodes-expanded").textContent = run.nodes_expanded;
+    byId("program-nodes").textContent = run.program_nodes;
+    byId("case-count").textContent = run.trajectories.length;
+    const caseSelect = byId("case-select"); caseSelect.replaceChildren();
+    run.trajectories.forEach((item, index) => { const option = document.createElement("option"); const size = Array.isArray(item.case.size) ? item.case.size.join("×") : `${item.case.size}×${item.case.size}`; option.value = index; option.textContent = `case ${index + 1}: ${size}`; caseSelect.appendChild(option); });
+    caseIndex = Math.min(caseIndex, run.trajectories.length - 1); caseSelect.value = caseIndex;
+    loadTrajectory();
+  }
+
+  function renderPhase() {
+    if (selection.split === "test") { byId("phase-details").textContent = JSON.stringify(currentTask().generalization, null, 2); return; }
+    if (selection.split === "dynamic") { byId("phase-details").textContent = JSON.stringify({model: currentTask().case, failure_mode: currentTask().failure_mode, strategy: currentCondition().name, success: currentCondition().success, failure_reason: currentCondition().failure_reason, initial_plan: currentCondition().initial_plan, planning_expansions: currentCondition().planning_expansions, replans: currentCondition().replans}, null, 2); return; }
+    const task = currentTask();
+    document.querySelectorAll("[data-phase]").forEach(button => {
+      button.classList.toggle("active", button.dataset.phase === phase);
+      button.classList.toggle("complete", task[button.dataset.phase].status === "complete");
+      button.classList.toggle("skipped", task[button.dataset.phase].status === "skipped");
+    });
+    const details = task[phase];
+    if (phase === "explore") {
+      byId("phase-details").textContent = `status: ${details.status}\nprogram: ${details.program}\nprograms tested: ${details.programs_tested}\nnodes expanded: ${details.nodes_expanded}\ncases solved: ${details.trajectories.length}`;
+    } else {
+      byId("phase-details").textContent = JSON.stringify(details, null, 2);
+    }
+  }
+
+  function loadTrajectory() {
+    const run = currentCondition(); trajectory = run.trajectories[caseIndex]; frameIndex = 0;
+    frames = trajectory.frames.map(frame => frame.trimEnd().split("\n")); origin = findCharacter(frames[0], "@"); target = findCharacter(frames[0], ">");
+    const size = Array.isArray(trajectory.case.size) ? trajectory.case.size.join("×") : `${trajectory.case.size}×${trajectory.case.size}`;
+    byId("environment-label").textContent = `${size}, start ${trajectory.case.start.join(",")}, goal ${trajectory.case.goal.join(",")}`;
+    byId("scrubber").max = frames.length - 1; renderFrame(0);
+  }
+
+  function renderFrame(index) {
+    frameIndex = Math.max(0, Math.min(index, frames.length - 1)); const frame = frames[frameIndex];
+    const transition = frameIndex === 0 ? null : trajectory.trajectory[frameIndex - 1]; const game = byId("game"); game.replaceChildren();
+    const cellSize = Number(byId("cell-size").value);
+    const tileMode = byId("render-mode").value === "tiles" && trajectory.rgb_frames?.length;
+    byId("render-stage").hidden = !tileMode; game.hidden = tileMode;
+    if (tileMode) {
+      const image = byId("pixel-frame"); image.src = trajectory.rgb_frames[frameIndex]; image.style.width = `${frame[0].length * cellSize}px`; image.style.height = `${frame.length * cellSize}px`;
+      const overlay = byId("hazard-overlay");
+      if (selection.split === "dynamic") {
+        const hazard = trajectory.case.dynamic_gate ?? trajectory.case.hazard; const localY = "corridor_row" in trajectory.case ? hazard[1] - trajectory.case.corridor_row : hazard[1];
+        overlay.hidden = false; overlay.style.left = `${hazard[0] * cellSize}px`; overlay.style.top = `${localY * cellSize}px`; overlay.style.width = `${cellSize}px`; overlay.style.height = `${cellSize}px`;
+        const active = trajectory.hazard_states[frameIndex]; overlay.classList.toggle("inactive", !active); overlay.textContent = active ? "!" : "·";
+      } else { overlay.hidden = true; }
+    }
+    game.style.gridTemplateColumns = `repeat(${frame[0].length}, 1fr)`;
+    frame.forEach((row, y) => [...row].forEach((character, x) => {
+      const cell = document.createElement("div"); const isAgent = character === "@"; const isGoal = target && target.x === x && target.y === y; const isOrigin = origin && origin.x === x && origin.y === y;
+      cell.className = `cell${isAgent ? " agent" : ""}${isGoal ? " goal" : ""}${isOrigin ? " origin" : ""}`;
+      cell.textContent = isAgent ? "@" : isGoal ? ">" : character === "<" ? "<" : ""; game.appendChild(cell);
+    }));
+    const position = selection.split === "dynamic"
+      ? frameIndex === 0 ? trajectory.case.start : trajectory.trajectory[Math.min(frameIndex - 1, trajectory.trajectory.length - 1)].player
+      : frameIndex === 0 ? trajectory.trajectory[0].player : frameIndex < trajectory.trajectory.length ? trajectory.trajectory[frameIndex].player : trajectory.trajectory.at(-1).goal;
+    byId("action").textContent = transition?.action ?? "start"; byId("reward").textContent = transition?.reward ?? 0;
+    byId("player").textContent = `(${position.join(", ")})`; byId("goal").textContent = `(${trajectory.trajectory[0].goal.join(", ")})`;
+    byId("frame-label").textContent = transition ? `after ${transition.action}` : "initial observation"; byId("frame-count").textContent = `frame ${frameIndex} / ${frames.length - 1}`; byId("scrubber").value = frameIndex;
+  }
+
+  function renderLibrary() {
+    const body = byId("library-body"); body.replaceChildren();
+    currentLibrary().forEach(primitive => {
+      const row = document.createElement("tr"); if (primitive.learned_at !== null) row.className = "learned";
+      const values = [primitive.name, `${primitive.inputs.join(", ")} → ${primitive.output_type}`, primitive.weight.toFixed(2), primitive.probability.toFixed(3), primitive.definition ?? "—"];
+      values.forEach((value, index) => { const cell = document.createElement("td"); cell.textContent = value; if (index === 0 || index === 4) cell.className = "mono"; row.appendChild(cell); }); body.appendChild(row);
+    });
+  }
+
+  function renderComparison() {
+    const body = byId("comparison-body"); body.replaceChildren();
+    const task = data.heldout[0]; const summary = task.generalization;
+    byId("generalization-summary").innerHTML = `<strong class="${summary.all_cases_success && summary.uses_parameterized_skill ? "pass" : ""}">${summary.all_cases_success && summary.uses_parameterized_skill ? "PASS" : "FAIL"}</strong> — learned skill used on all held-out cases; expansions ${summary.learned_expansions} vs ${summary.frozen_expansions} frozen (${(summary.expansion_ratio * 100).toFixed(1)}%).`;
+    task.conditions.forEach(condition => { const row = document.createElement("tr"); [condition.name, condition.program, condition.success, condition.programs_tested, condition.nodes_expanded, condition.program_nodes].forEach((value, index) => { const cell = document.createElement("td"); cell.textContent = value; if (index === 1) cell.className = "mono"; row.appendChild(cell); }); body.appendChild(row); });
+    const dynamicBody = byId("dynamic-comparison-body"); dynamicBody.replaceChildren();
+    data.dynamic.forEach(dynamicTask => dynamicTask.strategies.forEach(strategy => {
+      const row = document.createElement("tr");
+      [dynamicTask.name, strategy.name, strategy.success, strategy.failure_reason ?? "—", strategy.episode_steps, strategy.planning_expansions, strategy.replans].forEach(value => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); });
+      dynamicBody.appendChild(row);
+    }));
+  }
+
+  function pause() { clearInterval(timer); timer = null; byId("play").textContent = "Play"; }
+  function play() { if (timer) return pause(); if (frameIndex === frames.length - 1) renderFrame(0); byId("play").textContent = "Pause"; timer = setInterval(() => { if (frameIndex === frames.length - 1) return pause(); renderFrame(frameIndex + 1); }, Number(byId("speed").value)); }
+
+  function syncConfigJson() { byId("config-json").value = JSON.stringify(editableConfig, null, 2); }
+  function renderConfigEditor() {
+    byId("prior-mode").value = editableConfig.prior_mode; byId("search-budget").value = editableConfig.search_budget; byId("max-depth").value = editableConfig.max_depth;
+    byId("min-support").value = editableConfig.compression.min_task_support; byId("min-fixed").value = editableConfig.compression.min_fixed_nodes; byId("prior-alpha").value = editableConfig.compression.prior_alpha;
+    const body = byId("config-library-body"); body.replaceChildren(); editableConfig.library.forEach((primitive, index) => {
+      const row = document.createElement("tr"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = primitive.enabled; enabled.dataset.index = index; enabled.className = "primitive-enabled";
+      const weight = document.createElement("input"); weight.type = "number"; weight.min = ".01"; weight.step = ".1"; weight.value = primitive.weight; weight.dataset.index = index; weight.className = "primitive-weight";
+      [enabled, primitive.name, primitive.kind, weight].forEach(value => { const cell = document.createElement("td"); if (value instanceof Node) cell.appendChild(value); else cell.textContent = value; row.appendChild(cell); }); body.appendChild(row);
+    }); syncConfigJson();
+  }
+  function applyControls() {
+    try { editableConfig = JSON.parse(byId("config-json").value); } catch (error) { alert(`Invalid JSON: ${error.message}`); return false; }
+    editableConfig.prior_mode = byId("prior-mode").value; editableConfig.search_budget = Number(byId("search-budget").value); editableConfig.max_depth = Number(byId("max-depth").value);
+    editableConfig.compression.min_task_support = Number(byId("min-support").value); editableConfig.compression.min_fixed_nodes = Number(byId("min-fixed").value); editableConfig.compression.prior_alpha = Number(byId("prior-alpha").value);
+    document.querySelectorAll(".primitive-enabled").forEach(input => editableConfig.library[Number(input.dataset.index)].enabled = input.checked);
+    document.querySelectorAll(".primitive-weight").forEach(input => editableConfig.library[Number(input.dataset.index)].weight = Number(input.value)); syncConfigJson(); return true;
+  }
+  async function runExperiment() {
+    if (!applyControls()) return; const button = byId("run-experiment"); button.disabled = true; byId("run-status").textContent = "running training and held-out ablations…";
+    try {
+      const response = await fetch("/api/run", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(editableConfig)}); const result = await response.json(); if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
+      data = result; originalConfig = structuredClone(data.config); editableConfig = structuredClone(data.config); selection = {split: "train", index: 0}; rebuildTaskLists(); renderConfigEditor(); renderSelection(); byId("run-status").textContent = "done";
+    } catch (error) { byId("run-status").textContent = `failed: ${error.message}`; } finally { button.disabled = false; }
+  }
+
+  function setupSplitter(id, variable, direction) {
+    const splitter = byId(id); splitter.addEventListener("pointerdown", event => {
+      splitter.setPointerCapture(event.pointerId); const start = event.clientX; const root = document.documentElement; const initial = parseFloat(getComputedStyle(root).getPropertyValue(variable));
+      const move = moveEvent => { const value = Math.max(150, initial + direction * (moveEvent.clientX - start)); root.style.setProperty(variable, `${value}px`); localStorage.setItem(variable, value); };
+      const end = () => { splitter.removeEventListener("pointermove", move); splitter.removeEventListener("pointerup", end); };
+      splitter.addEventListener("pointermove", move); splitter.addEventListener("pointerup", end);
+    });
+  }
+  ["--left", "--right"].forEach(variable => { const value = localStorage.getItem(variable); if (value) document.documentElement.style.setProperty(variable, `${value}px`); });
+  setupSplitter("left-splitter", "--left", 1); setupSplitter("right-splitter", "--right", -1);
+
+  document.querySelectorAll("[data-phase]").forEach(button => button.addEventListener("click", () => { phase = button.dataset.phase; renderPhase(); }));
+  byId("condition-select").addEventListener("change", () => { caseIndex = 0; renderRun(); renderPhase(); renderLibrary(); });
+  byId("case-select").addEventListener("change", event => { caseIndex = Number(event.target.value); loadTrajectory(); });
+  byId("library-phase").addEventListener("change", renderLibrary); byId("first").addEventListener("click", () => { pause(); renderFrame(0); });
+  byId("previous").addEventListener("click", () => { pause(); renderFrame(frameIndex - 1); }); byId("play").addEventListener("click", play); byId("next").addEventListener("click", () => { pause(); renderFrame(frameIndex + 1); });
+  byId("scrubber").addEventListener("input", event => { pause(); renderFrame(Number(event.target.value)); }); byId("speed").addEventListener("change", () => { if (timer) { pause(); play(); } });
+  byId("cell-size").addEventListener("input", event => { document.documentElement.style.setProperty("--cell", `${event.target.value}px`); byId("cell-size-value").textContent = `${event.target.value}px`; localStorage.setItem("cell-size", event.target.value); renderFrame(frameIndex); });
+  byId("render-mode").addEventListener("change", () => renderFrame(frameIndex));
+  byId("run-experiment").addEventListener("click", runExperiment); byId("apply-controls").addEventListener("click", applyControls); byId("reset-config").addEventListener("click", () => { editableConfig = structuredClone(originalConfig); renderConfigEditor(); });
+  byId("reset-layout").addEventListener("click", () => { localStorage.removeItem("--left"); localStorage.removeItem("--right"); document.documentElement.style.removeProperty("--left"); document.documentElement.style.removeProperty("--right"); });
+  document.addEventListener("keydown", event => { if (event.target.matches("input, textarea, select")) return; if (event.key === "ArrowLeft") { pause(); renderFrame(frameIndex - 1); } if (event.key === "ArrowRight") { pause(); renderFrame(frameIndex + 1); } if (event.key === " ") { event.preventDefault(); play(); } });
+
+  const savedCell = localStorage.getItem("cell-size"); if (savedCell) { byId("cell-size").value = savedCell; document.documentElement.style.setProperty("--cell", `${savedCell}px`); byId("cell-size-value").textContent = `${savedCell}px`; }
+  rebuildTaskLists(); renderConfigEditor(); renderSelection();
+</script>
+</body>
+</html>
