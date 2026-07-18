@@ -49,7 +49,10 @@ class Delta:
     def __eq__(self, other):
         if not isinstance(other, Delta): return False
         if self.ishole or other.ishole: return self.type == other.type
-        if self.isarg and other.isarg: return self.type == other.type
+        if self.isarg and other.isarg:
+            # Compare heads too: two same-typed arguments ($0, $1) are
+            # distinct, otherwise replace_hidden binds both to one value.
+            return self.head == other.head and self.type == other.type
         return self.head == other.head and self.tails == other.tails
 
     def __repr__(self):

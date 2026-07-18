@@ -7,3 +7,6 @@
 [submodule "refs/prior-v0"]
 	path = refs/prior-v0
 	url = https://github.com/automl/TransformersCanDoBayesianInference.git
+[submodule "refs/arc-dsl"]
+	path = refs/arc-dsl
+	url = https://github.com/michaelhodel/arc-dsl.git
